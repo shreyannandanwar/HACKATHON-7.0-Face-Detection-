@@ -7,13 +7,17 @@ export interface User {
 export interface AttendanceRecord {
   id: string;
   userId: string;
+  userName?: string;
   timestamp: string;
   status: 'SUCCESS' | 'FAILED';
+  confidence?: number;
+  livenessPassed?: boolean;
+  deviceId?: string;
 }
 
 export type RootStackParamList = {
   Home: undefined;
-  Camera: { mode: 'ENROLL' | 'VERIFY' };
+  Camera: { mode: 'ENROLL' | 'VERIFY'; enrollmentName?: string };
   Enrollment: undefined;
   Verification: undefined;
   AttendanceHistory: undefined;

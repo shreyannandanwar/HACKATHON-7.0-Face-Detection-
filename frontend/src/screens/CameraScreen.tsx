@@ -18,6 +18,9 @@ import { useCameraSetup } from '../hooks/useCameraSetup';
 import { useFaceDetection } from '../hooks/useFaceDetection';
 import { useLiveness } from '../hooks/useLiveness';
 import { CameraOverlay } from '../components/camera/CameraOverlay';
+import { useAppStore } from '../core/store/useAppStore';
+import { enrollFace, verifyFace } from '../core/backend/faceAuthBackend';
+import { createEmbeddingFromDetectionSignal } from '../core/ml/embeddingAdapter';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,7 +32,7 @@ type Props = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const CameraScreen: React.FC<Props> = ({ navigation, route }) => {
-  const { mode } = route.params;
+  const { mode, enrollmentName } = route.params;
   const isFocused = useIsFocused();
   const { hasPermission, requestPermission, device } = useCameraSetup();
 
@@ -48,6 +51,12 @@ export const CameraScreen: React.FC<Props> = ({ navigation, route }) => {
 
   // ── Debug toggle ────────────────────────────────────────────────────────────
   const [showDebug, setShowDebug] = useState(false);
+  const [isProcessingResult, setIsProcessingResult] = useState(false);
+  const [resultMessage, setResultMessage] = useState('');
+  const [resultStatus, setResultStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const verificationHandledRef = useRef(false);
+
+  const detectedFaces = useAppStore((state) => state.detectedFaces);
 
   // ── Permission loading state ─────────────────────────────────────────────
   const [isInitializing, setIsInitializing] = useState(!hasPermission);
@@ -76,17 +85,93 @@ export const CameraScreen: React.FC<Props> = ({ navigation, route }) => {
   // ── Liveness verification (VERIFY mode only) ────────────────────────────────
   const { resetLiveness } = useLiveness({
     isActive: isDetectionActive && isVerifyMode,
-    onVerified: () => {
+    onVerified: async () => {
       if (__DEV__) console.log('[CameraScreen] Liveness VERIFIED');
+      if (verificationHandledRef.current) return;
+      verificationHandledRef.current = true;
+
+      const state = useAppStore.getState();
+      const face = state.detectedFaces[0];
+      const latestLivenessFrame =
+        state.livenessFrameBuffer[state.livenessFrameBuffer.length - 1];
+
+      if (!face) {
+        setResultStatus('error');
+        setResultMessage('No face available for verification');
+        return;
+      }
+
+      setIsProcessingResult(true);
+      try {
+        const embedding = createEmbeddingFromDetectionSignal(face, latestLivenessFrame);
+        const result = await verifyFace({
+          embedding,
+          livenessPassed: true,
+          deviceId: 'mobile-local',
+        });
+        useAppStore.getState().recordAttendance(result.record);
+        setResultStatus(result.status === 'SUCCESS' ? 'success' : 'error');
+        setResultMessage(
+          `${result.message} (${(result.confidence * 100).toFixed(1)}% confidence)`,
+        );
+      } finally {
+        setIsProcessingResult(false);
+      }
     },
-    onFailed: () => {
+    onFailed: async () => {
       if (__DEV__) console.log('[CameraScreen] Liveness FAILED');
+      if (verificationHandledRef.current) return;
+      verificationHandledRef.current = true;
+
+      setIsProcessingResult(true);
+      try {
+        const result = await verifyFace({
+          embedding: [],
+          livenessPassed: false,
+          deviceId: 'mobile-local',
+        });
+        useAppStore.getState().recordAttendance(result.record);
+        setResultStatus('error');
+        setResultMessage(result.message);
+      } finally {
+        setIsProcessingResult(false);
+      }
     },
   });
 
   const handleLivenessRetry = useCallback(() => {
+    verificationHandledRef.current = false;
+    setResultStatus('idle');
+    setResultMessage('');
     resetLiveness();
   }, [resetLiveness]);
+
+  const handleEnrollmentCapture = useCallback(async () => {
+    const state = useAppStore.getState();
+    const face = state.detectedFaces[0];
+    const latestLivenessFrame =
+      state.livenessFrameBuffer[state.livenessFrameBuffer.length - 1];
+
+    if (!face || !enrollmentName) return;
+
+    setIsProcessingResult(true);
+    try {
+      const embedding = createEmbeddingFromDetectionSignal(face, latestLivenessFrame);
+      const result = await enrollFace({
+        name: enrollmentName,
+        embedding,
+      });
+      useAppStore.getState().enrollUser(result.user);
+      setResultStatus('success');
+      setResultMessage(`${result.user.name} enrolled and saved`);
+    } catch (error) {
+      setResultStatus('error');
+      setResultMessage('Enrollment could not be saved');
+      if (__DEV__) console.warn('[CameraScreen] Enrollment error:', error);
+    } finally {
+      setIsProcessingResult(false);
+    }
+  }, [enrollmentName]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Render: Loading
@@ -161,6 +246,35 @@ export const CameraScreen: React.FC<Props> = ({ navigation, route }) => {
 
       {/* Bottom controls */}
       <View style={styles.bottomControls}>
+        {resultMessage.length > 0 && (
+          <View
+            style={[
+              styles.resultPanel,
+              resultStatus === 'success' ? styles.resultSuccess : styles.resultError,
+            ]}
+          >
+            <Text style={styles.resultText}>{resultMessage}</Text>
+          </View>
+        )}
+
+        {mode === 'ENROLL' && (
+          <Button
+            title={isProcessingResult ? 'Saving...' : 'Capture & Save'}
+            onPress={handleEnrollmentCapture}
+            disabled={isProcessingResult || detectedFaces.length === 0 || !enrollmentName}
+            style={styles.button}
+          />
+        )}
+
+        {mode === 'VERIFY' && resultStatus !== 'idle' && (
+          <Button
+            title="View History"
+            onPress={() => navigation.navigate('AttendanceHistory')}
+            disabled={isProcessingResult}
+            style={styles.button}
+          />
+        )}
+
         {/* Debug toggle */}
         <Pressable
           onPress={() => setShowDebug((v) => !v)}
@@ -206,6 +320,27 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
   },
+  resultPanel: {
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  resultSuccess: {
+    backgroundColor: 'rgba(0, 70, 35, 0.82)',
+    borderColor: 'rgba(0, 255, 136, 0.55)',
+  },
+  resultError: {
+    backgroundColor: 'rgba(80, 10, 10, 0.82)',
+    borderColor: 'rgba(255, 82, 82, 0.55)',
+  },
+  resultText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   debugToggle: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -220,4 +355,3 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
 });
-

@@ -29,6 +29,7 @@ interface AppState {
   isCameraReady: boolean;
   enrollUser: (user: User) => void;
   recordAttendance: (record: AttendanceRecord) => void;
+  hydrateRecords: (users: User[], records: AttendanceRecord[]) => void;
   setCameraReady: (ready: boolean) => void;
 
   // ── Face detection state ──────────────────────────────────────────────────
@@ -60,9 +61,20 @@ export const useAppStore = create<AppState>((set) => ({
   users: [],
   attendanceRecords: [],
   isCameraReady: false,
-  enrollUser: (user) => set((state) => ({ users: [...state.users, user] })),
+  enrollUser: (user) =>
+    set((state) => {
+      const existingIndex = state.users.findIndex((item) => item.id === user.id);
+      if (existingIndex >= 0) {
+        const users = [...state.users];
+        users[existingIndex] = user;
+        return { users };
+      }
+
+      return { users: [...state.users, user] };
+    }),
   recordAttendance: (record) =>
-    set((state) => ({ attendanceRecords: [...state.attendanceRecords, record] })),
+    set((state) => ({ attendanceRecords: [record, ...state.attendanceRecords] })),
+  hydrateRecords: (users, records) => set({ users, attendanceRecords: records }),
   setCameraReady: (ready) => set({ isCameraReady: ready }),
 
   // ── Face detection state ──────────────────────────────────────────────────
@@ -124,4 +136,3 @@ export const useAppStore = create<AppState>((set) => ({
       livenessState: INITIAL_LIVENESS,
     }),
 }));
-

@@ -30,7 +30,10 @@ export const EnrollmentScreen: React.FC<Props> = ({ navigation }) => {
           />
           <Button
             title="Proceed to Face Scan"
-            onPress={() => navigation.navigate('Camera', { mode: 'ENROLL' })}
+            onPress={() => navigation.navigate('Camera', {
+              mode: 'ENROLL',
+              enrollmentName: name.trim(),
+            })}
             disabled={!name.trim()}
           />
         </Card>
