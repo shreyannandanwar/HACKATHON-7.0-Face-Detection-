@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     position: 'absolute',
-    bottom: 40,
+    bottom: 156,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -221,4 +221,3 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
 });
-

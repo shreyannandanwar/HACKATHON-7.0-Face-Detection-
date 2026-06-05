@@ -1,46 +1,7 @@
-
-// import { getDB } from '../sqlite';
-// import { randomUUID } from 'crypto';
-
-// export const logAuthEvent = (
-//   userId: string,
-//   confidence: number,
-//   livenessPassed: boolean,
-//   deviceId: string
-// ): void => {
-//   const db = getDB();
-//   db.prepare(
-//     `INSERT INTO auth_events 
-//       (id, user_id, confidence, liveness_passed, device_id, timestamp, synced)
-//      VALUES (?, ?, ?, ?, ?, ?, 0)`
-//   ).run(
-//     randomUUID(),
-//     userId,
-//     confidence,
-//     livenessPassed ? 1 : 0,
-//     deviceId,
-//     new Date().toISOString()
-//   );
-// };
-
-// export const getUnsyncedEvents = (): any[] => {
-//   const db = getDB();
-//   return db.prepare(`SELECT * FROM auth_events WHERE synced = 0`).all();
-// };
-
-// export const markEventSynced = (id: string): void => {
-//   const db = getDB();
-//   db.prepare(`UPDATE auth_events SET synced = 1 WHERE id = ?`).run(id);
-// };
-
-// export const deleteSyncedEvents = (): void => {
-//   const db = getDB();
-//   db.prepare(`DELETE FROM auth_events WHERE synced = 1`).run();
-// };
-
-// mobile/backend/db/repositories/authEventRepo.ts
 import { getDB } from '../sqlite';
-import { randomUUID } from 'expo-crypto';
+
+const createId = (): string =>
+  `auth_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
 export const logAuthEvent = (
   userId: string,
@@ -49,27 +10,29 @@ export const logAuthEvent = (
   deviceId: string
 ): void => {
   const db = getDB();
-  db.runSync(
-    `INSERT INTO auth_events 
-      (id, user_id, confidence, liveness_passed, device_id, timestamp, synced)
-     VALUES (?, ?, ?, ?, ?, ?, 0)`,
-    randomUUID(), userId, confidence,
-    livenessPassed ? 1 : 0, deviceId,
-    new Date().toISOString()
-  );
+  db.auth_events.unshift({
+    id: createId(),
+    user_id: userId,
+    confidence,
+    liveness_passed: livenessPassed ? 1 : 0,
+    device_id: deviceId,
+    timestamp: new Date().toISOString(),
+    synced: 0,
+  });
 };
 
 export const getUnsyncedEvents = (): any[] => {
   const db = getDB();
-  return db.getAllSync(`SELECT * FROM auth_events WHERE synced = 0`);
+  return db.auth_events.filter((event) => event.synced === 0);
 };
 
 export const markEventSynced = (id: string): void => {
   const db = getDB();
-  db.runSync(`UPDATE auth_events SET synced = 1 WHERE id = ?`, id);
+  const event = db.auth_events.find((item) => item.id === id);
+  if (event) event.synced = 1;
 };
 
 export const deleteSyncedEvents = (): void => {
   const db = getDB();
-  db.runSync(`DELETE FROM auth_events WHERE synced = 1`);
+  db.auth_events = db.auth_events.filter((event) => event.synced === 0);
 };

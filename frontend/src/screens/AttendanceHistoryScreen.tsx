@@ -5,10 +5,11 @@ import { Card } from '../components/ui/Card';
 import { useAppStore } from '../core/store/useAppStore';
 
 export const AttendanceHistoryScreen: React.FC = () => {
-  const { attendanceRecords, users } = useAppStore();
+  const attendanceRecords = useAppStore((state) => state.attendanceRecords);
+  const users = useAppStore((state) => state.users);
 
   const getUsername = (userId: string) => {
-    return users.find(u => u.id === userId)?.name || 'Unknown User';
+    return users.find((user) => user.id === userId)?.name || 'Unknown User';
   };
 
   return (
@@ -30,7 +31,7 @@ export const AttendanceHistoryScreen: React.FC = () => {
               <Card style={styles.card}>
                 <View style={styles.row}>
                   <Typography variant="h2" style={styles.name}>
-                    {getUsername(item.userId)}
+                    {item.userName ?? getUsername(item.userId)}
                   </Typography>
                   <Typography
                     variant="caption"
@@ -45,6 +46,11 @@ export const AttendanceHistoryScreen: React.FC = () => {
                 <Typography variant="caption">
                   {new Date(item.timestamp).toLocaleString()}
                 </Typography>
+                {typeof item.confidence === 'number' && (
+                  <Typography variant="caption">
+                    Confidence {(item.confidence * 100).toFixed(1)}%
+                  </Typography>
+                )}
               </Card>
             )}
           />
